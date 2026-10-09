@@ -64,6 +64,8 @@ export interface FeedEvent {
   notifyDevices: boolean;
   timestamp: number;
   data?: Record<string, string>;
+  targetUid?: string;
+  targetSectorName?: string;
 }
 
 export interface NotificationOutboxRecord {
@@ -134,4 +136,6 @@ export interface SendAnnouncementRequest {
   clientCommandId: string;
   body: string;
   notifyDevices?: boolean;
+  targetUid?: string;
+  targetSectorName?: string;
 }

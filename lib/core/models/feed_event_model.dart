@@ -11,6 +11,8 @@ class FeedEvent {
   final bool notifyDevices;
   final int timestamp;
   final Map<String, String>? data;
+  final String? targetUid;
+  final String? targetSectorName;
 
   const FeedEvent({
     required this.eventId,
@@ -21,6 +23,8 @@ class FeedEvent {
     required this.notifyDevices,
     required this.timestamp,
     this.data,
+    this.targetUid,
+    this.targetSectorName,
   });
 
   static int _parseTimestampMs(dynamic val) {
@@ -46,6 +50,8 @@ class FeedEvent {
       data: json['data'] != null
           ? Map<String, String>.from(json['data'] as Map)
           : null,
+      targetUid: json['targetUid'] as String?,
+      targetSectorName: json['targetSectorName'] as String?,
     );
   }
 
@@ -60,5 +66,7 @@ class FeedEvent {
         'notifyDevices': notifyDevices,
         'timestamp': timestamp,
         'data': data,
+        if (targetUid != null) 'targetUid': targetUid,
+        if (targetSectorName != null) 'targetSectorName': targetSectorName,
       };
 }

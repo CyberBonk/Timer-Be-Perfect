@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/localization/app_locale.dart';
+import 'developer_info_page.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -87,7 +88,7 @@ class _AboutPageState extends State<AboutPage> {
                       ),
                     ),
                     TextSpan(
-                      text: 'CyberBonk',
+                      text: 'Abanoub Samy (CyberBonk)',
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.bold,
@@ -97,6 +98,21 @@ class _AboutPageState extends State<AboutPage> {
                         ..onTap = _launchDeveloperUrl,
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DeveloperInfoPage()),
+                  );
+                },
+                icon: const Icon(Icons.person_pin_circle_outlined, size: 18),
+                label: Text(
+                  context.tr(
+                    'Developer Information (@CyberBonk)',
+                    'معلومات المطوّر (@CyberBonk)',
+                  ),
                 ),
               ),
             ],

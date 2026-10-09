@@ -16,6 +16,14 @@ final roomRepositoryProvider = Provider<RoomRepository>((ref) {
   return RoomRepository();
 });
 
+final currentUidProvider = Provider<String?>((ref) {
+  try {
+    return ref.watch(roomRepositoryProvider).currentUid;
+  } catch (_) {
+    return null;
+  }
+});
+
 final presenceServiceProvider = Provider<PresenceService>((ref) {
   return PresenceService();
 });

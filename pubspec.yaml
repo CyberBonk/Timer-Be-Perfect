@@ -1,7 +1,7 @@
 name: be_perfect
 description: "Timer Be Perfect - Android event-coordination app for church student activities."
 publish_to: 'none'
-version: 2.2.6+7
+version: 2.3.0+8
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

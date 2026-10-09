@@ -612,23 +612,29 @@ class RoomRepository {
     }
   }
 
-  /// Sends an Announcement
+  /// Sends an Announcement (broadcast or targeted to a specific participant)
   Future<void> sendAnnouncement({
     required String roomId,
     required String body,
     String title = 'Announcement',
     bool notifyDevices = true,
+    String? targetUid,
+    String? targetSectorName,
   }) async {
     final docRef = _db.collection('rooms/$roomId/feed').doc();
-    await docRef.set({
+    final data = <String, dynamic>{
       'eventId': docRef.id,
       'type': 'announcement',
       'title': title,
       'body': body,
       'timestamp': FieldValue.serverTimestamp(),
+      'senderUid': currentUid ?? '',
       'authorUid': currentUid,
       'notifyDevices': notifyDevices,
-    });
+    };
+    if (targetUid != null) data['targetUid'] = targetUid;
+    if (targetSectorName != null) data['targetSectorName'] = targetSectorName;
+    await docRef.set(data);
   }
 
   /// Updates Member Readiness

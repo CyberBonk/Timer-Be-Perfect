@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/firebase/firebase_providers.dart';
 import '../../core/localization/app_locale.dart';
 import '../../core/models/feed_event_model.dart';
+import '../../core/models/member_model.dart';
 
 enum _SystemEventKind { roundStarted, timerAdjusted, other }
 
@@ -94,11 +95,100 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
   final _messageController = TextEditingController();
   bool _notifyDevices = true;
   bool _isSending = false;
+  String? _mentionQuery;
+  Member? _selectedTargetMember;
+
+  @override
+  void initState() {
+    super.initState();
+    _messageController.addListener(_onTextChanged);
+  }
 
   @override
   void dispose() {
+    _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+    final textBeforeCursor = text.substring(0, cursorPos);
+    final lastAt = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAt != -1) {
+      final candidate = textBeforeCursor.substring(lastAt + 1);
+      if (!candidate.contains(' ')) {
+        if (_mentionQuery != candidate) {
+          setState(() => _mentionQuery = candidate);
+        }
+        return;
+      }
+    }
+
+    if (_mentionQuery != null) {
+      setState(() => _mentionQuery = null);
+    }
+
+    if (_selectedTargetMember != null &&
+        !text.contains('@${_selectedTargetMember!.sectorName}')) {
+      setState(() => _selectedTargetMember = null);
+    }
+  }
+
+  void _insertMentionTrigger() {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+
+    final newText =
+        '${text.substring(0, cursorPos)}@${text.substring(cursorPos)}';
+    final newCursor = cursorPos + 1;
+
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+    setState(() => _mentionQuery = '');
+  }
+
+  void _selectMentionTarget(Member member) {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+    final textBeforeCursor = text.substring(0, cursorPos);
+    final lastAt = textBeforeCursor.lastIndexOf('@');
+    final afterCursor = text.substring(cursorPos);
+
+    String newText;
+    int newCursor;
+    if (lastAt != -1) {
+      newText =
+          '${text.substring(0, lastAt)}@${member.sectorName} $afterCursor';
+      newCursor = lastAt + member.sectorName.length + 2;
+    } else {
+      if (text.isEmpty) {
+        newText = '@${member.sectorName} ';
+      } else {
+        newText = '@${member.sectorName} $text';
+      }
+      newCursor = member.sectorName.length + 2;
+    }
+
+    setState(() {
+      _selectedTargetMember = member;
+      _mentionQuery = null;
+    });
+
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
   }
 
   Future<void> _sendAnnouncement() async {
@@ -108,23 +198,53 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
     final roomId = ref.read(activeRoomIdProvider);
     if (roomId == null) return;
     final sectorName = ref.read(userSectorNameProvider);
+    final members = ref.read(membersStreamProvider).asData?.value ?? [];
+    final currentUid = ref.read(roomRepositoryProvider).currentUid;
+
+    String? targetUid = _selectedTargetMember?.uid;
+    String? targetSectorName = _selectedTargetMember?.sectorName;
+
+    // If target was not chosen via tap, auto-resolve by matching @Name in text
+    if (targetUid == null) {
+      for (final m in members) {
+        if (m.uid != currentUid &&
+            text.toLowerCase().contains('@${m.sectorName.toLowerCase()}')) {
+          targetUid = m.uid;
+          targetSectorName = m.sectorName;
+          break;
+        }
+      }
+    }
 
     setState(() => _isSending = true);
 
     try {
       final repo = ref.read(roomRepositoryProvider);
+      final title = targetSectorName != null
+          ? context.tr(
+              'To @$targetSectorName',
+              'إلى @$targetSectorName',
+            )
+          : (widget.isController
+              ? context.tr('Announcement', 'تنويه')
+              : context.tr(
+                  'Message from ${sectorName ?? 'Participant'}',
+                  'رسالة من ${sectorName ?? 'مشارك'}',
+                ));
+
       await repo.sendAnnouncement(
         roomId: roomId,
         body: text,
-        title: widget.isController
-            ? context.tr('Announcement', 'تنويه')
-            : context.tr(
-                'Message from ${sectorName ?? 'Participant'}',
-                'رسالة من ${sectorName ?? 'مشارك'}',
-              ),
+        title: title,
         notifyDevices: _notifyDevices,
+        targetUid: targetUid,
+        targetSectorName: targetSectorName,
       );
       _messageController.clear();
+      setState(() {
+        _selectedTargetMember = null;
+        _mentionQuery = null;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -144,6 +264,30 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final feedAsync = ref.watch(feedStreamProvider);
+    final membersAsync = ref.watch(membersStreamProvider);
+    final currentUid = ref.watch(currentUidProvider);
+    final allMembers = membersAsync.asData?.value ?? [];
+    final eligibleMembers =
+        allMembers.where((m) => m.uid != currentUid).toList();
+
+    List<Member> matchingMembers = [];
+    if (_mentionQuery != null) {
+      final q = _mentionQuery!.trim().toLowerCase();
+      if (q.isEmpty) {
+        matchingMembers = eligibleMembers.take(6).toList();
+      } else {
+        final startsWithMatches = eligibleMembers
+            .where((m) => m.sectorName.toLowerCase().startsWith(q))
+            .toList();
+        final containsMatches = eligibleMembers
+            .where((m) =>
+                !m.sectorName.toLowerCase().startsWith(q) &&
+                m.sectorName.toLowerCase().contains(q))
+            .toList();
+        matchingMembers =
+            [...startsWithMatches, ...containsMatches].take(6).toList();
+      }
+    }
 
     return Column(
       children: [
@@ -175,15 +319,36 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                   final systemKind = _systemEventKind(event);
 
                   if (isAnnouncement || event.title.contains('Event Ended')) {
-                    // Human announcements and event closure deserve the full
-                    // card treatment. Routine timer controls stay quiet.
+                    final currentUid = ref.watch(currentUidProvider);
+                    final isTargetedToMe =
+                        event.targetUid != null && event.targetUid == currentUid;
+                    final isTargeted = event.targetSectorName != null;
+
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
-                      color: isAnnouncement
+                      color: isTargetedToMe
                           ? theme.colorScheme.primaryContainer
-                              .withValues(alpha: 0.5)
-                          : theme.colorScheme.secondaryContainer
-                              .withValues(alpha: 0.5),
+                              .withValues(alpha: 0.85)
+                          : (isAnnouncement
+                              ? theme.colorScheme.primaryContainer
+                                  .withValues(alpha: 0.5)
+                              : theme.colorScheme.secondaryContainer
+                                  .withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: isTargetedToMe
+                            ? BorderSide(
+                                color: theme.colorScheme.primary,
+                                width: 2,
+                              )
+                            : (isTargeted
+                                ? BorderSide(
+                                    color: theme.colorScheme.tertiary
+                                        .withValues(alpha: 0.35),
+                                    width: 1,
+                                  )
+                                : BorderSide.none),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(14.0),
                         child: Column(
@@ -192,24 +357,66 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                             Row(
                               children: [
                                 Icon(
-                                  isAnnouncement
-                                      ? Icons.campaign
-                                      : Icons.notifications_active,
+                                  isTargetedToMe
+                                      ? Icons.alternate_email_rounded
+                                      : (isAnnouncement
+                                          ? Icons.campaign
+                                          : Icons.notifications_active),
                                   size: 18,
-                                  color: isAnnouncement
+                                  color: isTargetedToMe
                                       ? theme.colorScheme.primary
-                                      : theme.colorScheme.secondary,
+                                      : (isAnnouncement
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.secondary),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text(
-                                    event.title,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: isAnnouncement
-                                          ? theme.colorScheme.primary
-                                          : theme.colorScheme.secondary,
-                                    ),
+                                  child: Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          event.title,
+                                          style: theme.textTheme.titleSmall
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: isAnnouncement
+                                                ? theme.colorScheme.primary
+                                                : theme.colorScheme.secondary,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (event.targetSectorName != null) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 7,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isTargetedToMe
+                                                ? theme.colorScheme.primary
+                                                : theme.colorScheme
+                                                    .tertiaryContainer,
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            isTargetedToMe
+                                                ? context.tr('@You', '@أنت')
+                                                : '@${event.targetSectorName}',
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                              color: isTargetedToMe
+                                                  ? theme.colorScheme.onPrimary
+                                                  : theme.colorScheme
+                                                      .onTertiaryContainer,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
                                 Text(
@@ -361,7 +568,139 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_mentionQuery != null && matchingMembers.isNotEmpty) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.alternate_email_rounded,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            context.tr(
+                              'Mention participant (exclusive alert)',
+                              'إشارة إلى مشارك (تنبيه حصري)',
+                            ),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      SizedBox(
+                        height: 38,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: matchingMembers.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 6),
+                          itemBuilder: (context, index) {
+                            final member = matchingMembers[index];
+                            return ActionChip(
+                              avatar: CircleAvatar(
+                                radius: 11,
+                                backgroundColor:
+                                    theme.colorScheme.primaryContainer,
+                                child: Text(
+                                  member.sectorName.isNotEmpty
+                                      ? member.sectorName[0].toUpperCase()
+                                      : '?',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        theme.colorScheme.onPrimaryContainer,
+                                  ),
+                                ),
+                              ),
+                              label: Text(
+                                '@${member.sectorName}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              backgroundColor: theme.colorScheme.surface,
+                              side: BorderSide(
+                                color: theme.colorScheme.primary
+                                    .withValues(alpha: 0.35),
+                              ),
+                              onPressed: () => _selectMentionTarget(member),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (_mentionQuery != null &&
+                  matchingMembers.isEmpty &&
+                  _mentionQuery!.isNotEmpty) ...[
+                Padding(
+                  padding:
+                      const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+                  child: Text(
+                    context.tr(
+                      'No participants match "@$_mentionQuery"',
+                      'لا يوجد مشاركون يطابقون "@$_mentionQuery"',
+                    ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+              if (_selectedTargetMember != null) ...[
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: InputChip(
+                    avatar: CircleAvatar(
+                      radius: 10,
+                      backgroundColor: theme.colorScheme.primary,
+                      child: Icon(
+                        Icons.alternate_email_rounded,
+                        size: 12,
+                        color: theme.colorScheme.onPrimary,
+                      ),
+                    ),
+                    label: Text(
+                      context.tr(
+                        'Targeting @${_selectedTargetMember!.sectorName} (Exclusive sound alert)',
+                        'موجه إلى @${_selectedTargetMember!.sectorName} (تنبيه صوتي حصري)',
+                      ),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    backgroundColor: theme.colorScheme.primaryContainer,
+                    deleteIcon: const Icon(Icons.close, size: 14),
+                    onDeleted: () {
+                      setState(() => _selectedTargetMember = null);
+                    },
+                  ),
+                ),
+              ],
               if (widget.isController)
                 Row(
                   children: [
@@ -380,6 +719,20 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                       controller: _messageController,
                       maxLength: 500,
                       decoration: InputDecoration(
+                        prefixIcon: IconButton(
+                          tooltip: context.tr(
+                            'Mention participant (@)',
+                            'إشارة لمشارك (@)',
+                          ),
+                          icon: Icon(
+                            Icons.alternate_email_rounded,
+                            color: _mentionQuery != null ||
+                                    _selectedTargetMember != null
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outline,
+                          ),
+                          onPressed: _insertMentionTrigger,
+                        ),
                         hintText: widget.isController
                             ? context.tr(
                                 'Type announcement...',
@@ -389,7 +742,11 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                                 'Send a message to the room...',
                                 'أرسل رسالة إلى الغرفة...',
                               ),
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
                         counterText: '',
                       ),
                     ),

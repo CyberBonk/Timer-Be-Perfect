@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:be_perfect/core/firebase/firebase_providers.dart';
 import 'package:be_perfect/core/models/feed_event_model.dart';
+import 'package:be_perfect/core/models/member_model.dart';
 import 'package:be_perfect/features/announcements/announcements_page.dart';
 
 Widget roleHost({
@@ -12,6 +13,7 @@ Widget roleHost({
   return ProviderScope(
     overrides: [
       feedStreamProvider.overrideWith((ref) => Stream.value(events)),
+      membersStreamProvider.overrideWith((ref) => Stream.value(<Member>[])),
     ],
     child: MaterialApp(
       theme: ThemeData(useMaterial3: true),

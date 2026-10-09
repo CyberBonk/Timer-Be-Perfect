@@ -11,6 +11,7 @@ import '../../core/models/sound_mode.dart';
 import '../../core/notifications/ringer_service.dart';
 import '../../core/theme/app_theme.dart';
 import 'about_page.dart';
+import 'developer_info_page.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -342,14 +343,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const SizedBox(height: 24),
           Card(
             child: ListTile(
+              leading: const Icon(Icons.person_pin_circle_outlined),
+              title: Text(
+                context.tr('Developer Information', 'معلومات المطوّر'),
+              ),
+              subtitle: Text(
+                context.tr(
+                  'Developed by CyberBonk (@CyberBonk)',
+                  'طُوّر بواسطة CyberBonk (@CyberBonk)',
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DeveloperInfoPage()),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
               leading: const Icon(Icons.info_outline),
               title: Text(
                 context.tr('About Timer Be Perfect', 'حول Timer Be Perfect'),
               ),
               subtitle: Text(
                 context.tr(
-                  'Version details & developer credits',
-                  'تفاصيل الإصدار وبيانات المطوّر',
+                  'Version details & system status',
+                  'تفاصيل الإصدار وحالة النظام',
                 ),
               ),
               trailing: const Icon(Icons.chevron_right),

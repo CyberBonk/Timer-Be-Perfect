@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import { CallableRequest, HttpsError } from 'firebase-functions/v2/https';
-import { FeedEvent, NotificationOutboxRecord, Room, SendAnnouncementRequest } from './types';
+import { FeedEvent, Member, NotificationOutboxRecord, Room, SendAnnouncementRequest } from './types';
 
 export async function handleSendAnnouncement(
   request: CallableRequest<SendAnnouncementRequest>
@@ -33,30 +33,44 @@ export async function handleSendAnnouncement(
     }
     const room = roomSnap.data() as Room;
 
-    if (room.ownerUid !== uid) {
-      throw new HttpsError('permission-denied', 'Only the room owner can send announcements.');
+    const isOwner = room.ownerUid === uid;
+    const memberDocRef = db.doc(`rooms/${roomId}/members/${uid}`);
+    const memberSnap = await tx.get(memberDocRef);
+
+    if (!isOwner && !memberSnap.exists) {
+      throw new HttpsError('permission-denied', 'Only room members or the controller can post announcements.');
     }
 
     if (room.state === 'closed') {
       throw new HttpsError('failed-precondition', 'Cannot send announcements in a closed room.');
     }
 
+    const memberData = memberSnap.exists ? (memberSnap.data() as Member) : null;
+    const senderName = memberData?.sectorName || 'Participant';
     const now = Date.now();
+
     const feedDoc: FeedEvent = {
       eventId,
       type: 'announcement',
       senderUid: uid,
-      title: 'Controller Announcement',
+      title: isOwner ? 'Controller Announcement' : `Message from ${senderName}`,
       body: trimmedBody,
       notifyDevices,
       timestamp: now,
+      targetUid: request.data.targetUid,
+      targetSectorName: request.data.targetSectorName,
     };
 
     tx.set(db.collection(`rooms/${roomId}/feed`).doc(eventId), feedDoc);
 
     if (notifyDevices) {
-      const membersSnap = await tx.get(db.collection(`rooms/${roomId}/members`));
-      const recipientUids = membersSnap.docs.map(d => d.id).filter(id => id !== uid);
+      let recipientUids: string[] = [];
+      if (request.data.targetUid) {
+        recipientUids = [request.data.targetUid];
+      } else {
+        const membersSnap = await tx.get(db.collection(`rooms/${roomId}/members`));
+        recipientUids = membersSnap.docs.map(d => d.id).filter(id => id !== uid);
+      }
 
       const outboxDoc: NotificationOutboxRecord = {
         eventId,

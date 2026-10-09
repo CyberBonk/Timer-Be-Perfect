@@ -244,14 +244,28 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
         }
         return;
       }
+      final currentUid = ref.read(roomRepositoryProvider).currentUid;
       for (final event in list) {
         if (!_seenFeedEventIds.contains(event.eventId)) {
           _seenFeedEventIds.add(event.eventId);
           if (event.notifyDevices) {
-            NotificationService().showActionNotification(
-              title: event.title,
-              body: event.body,
-            );
+            if (event.targetUid != null) {
+              // Targeted notification: only ring/notify the target participant!
+              if (currentUid == event.targetUid) {
+                NotificationService().showActionNotification(
+                  title: event.title,
+                  body: event.body,
+                );
+              }
+            } else {
+              // Global announcement: notify everyone except sender
+              if (currentUid == null || currentUid != event.senderUid) {
+                NotificationService().showActionNotification(
+                  title: event.title,
+                  body: event.body,
+                );
+              }
+            }
           }
         }
       }

@@ -70,7 +70,9 @@ void main() {
       find.byWidgetPredicate(
         (widget) =>
             widget is RichText &&
-            widget.text.toPlainText().contains('CyberBonk'),
+            widget.text
+                .toPlainText()
+                .contains('Developed for Be Perfect by Abanoub Samy (CyberBonk)'),
       ),
       findsOneWidget,
     );
