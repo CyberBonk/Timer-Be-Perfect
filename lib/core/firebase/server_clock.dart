@@ -8,8 +8,13 @@ class ServerClock {
   factory ServerClock() => _instance;
   ServerClock._internal();
 
-  final DatabaseReference _offsetRef =
-      FirebaseDatabase.instance.ref('.info/serverTimeOffset');
+  DatabaseReference? get _offsetRef {
+    try {
+      return FirebaseDatabase.instance.ref('.info/serverTimeOffset');
+    } catch (_) {
+      return null;
+    }
+  }
   StreamSubscription<DatabaseEvent>? _subscription;
   int _offsetMs = 0;
   bool _started = false;
@@ -17,10 +22,15 @@ class ServerClock {
   void start() {
     if (_started) return;
     _started = true;
-    _subscription = _offsetRef.onValue.listen((event) {
-      final value = event.snapshot.value;
-      if (value is num) _offsetMs = value.toInt();
-    });
+    try {
+      final ref = _offsetRef;
+      if (ref != null) {
+        _subscription = ref.onValue.listen((event) {
+          final value = event.snapshot.value;
+          if (value is num) _offsetMs = value.toInt();
+        });
+      }
+    } catch (_) {}
   }
 
   int nowMs() {
@@ -31,10 +41,13 @@ class ServerClock {
   Future<int> syncedNowMs() async {
     start();
     try {
-      final snapshot =
-          await _offsetRef.get().timeout(const Duration(seconds: 2));
-      final value = snapshot.value;
-      if (value is num) _offsetMs = value.toInt();
+      final ref = _offsetRef;
+      if (ref != null) {
+        final snapshot =
+            await ref.get().timeout(const Duration(seconds: 2));
+        final value = snapshot.value;
+        if (value is num) _offsetMs = value.toInt();
+      }
     } catch (_) {
       // Offline fallback uses the last known offset, initially zero.
     }

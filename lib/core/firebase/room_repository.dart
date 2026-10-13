@@ -47,12 +47,16 @@ class RoomRepository {
   }
 
   /// Creates a Room (Tries Cloud Function first, falls back to direct Firestore transaction)
-  Future<Map<String, String>> createRoom({int? sectorCapacity}) async {
+  Future<Map<String, String>> createRoom({
+    int? sectorCapacity,
+    List<String>? sectors,
+  }) async {
     final user = await ensureAuthenticated();
 
     try {
       final result = await _functions.httpsCallable('createRoom').call({
         'sectorCapacity': sectorCapacity,
+        if (sectors != null) 'sectors': sectors,
       });
       final data = Map<String, dynamic>.from(result.data as Map);
       return {
@@ -62,12 +66,12 @@ class RoomRepository {
     } catch (e) {
       debugPrint(
           'Cloud Function createRoom unavailable ($e). Executing client-side room creation...');
-      return _createRoomClientSide(user.uid, sectorCapacity);
+      return _createRoomClientSide(user.uid, sectorCapacity, sectors);
     }
   }
 
   Future<Map<String, String>> _createRoomClientSide(
-      String uid, int? sectorCapacity) async {
+      String uid, int? sectorCapacity, [List<String>? sectors]) async {
     final roomDocRef = _db.collection('rooms').doc();
     final roomId = roomDocRef.id;
 
@@ -95,6 +99,7 @@ class RoomRepository {
       'pin': pin,
       'ownerUid': uid,
       'state': 'lobby',
+      'sectors': sectors ?? [],
       'sectorCapacity': sectorCapacity,
       'activeRunId': null,
       'revision': 1,
@@ -111,8 +116,10 @@ class RoomRepository {
     // Add Owner Member
     batch.set(_db.collection('rooms/$roomId/members').doc(uid), {
       'uid': uid,
+      'participantName': 'Controller',
       'sectorName': 'Controller',
       'role': 'owner',
+      'acknowledgedRevision': 1,
       'joinedAt': FieldValue.serverTimestamp(),
       'notificationReadiness': true,
       'exactAlarmReadiness': true,
@@ -132,6 +139,7 @@ class RoomRepository {
   Future<Map<String, String>> joinRoom({
     required String code,
     required String sectorName,
+    String? participantName,
     bool notificationReadiness = false,
     bool exactAlarmReadiness = false,
     SoundMode selectedSoundMode = SoundMode.bePerfectSound,
@@ -147,6 +155,7 @@ class RoomRepository {
       final result = await _functions.httpsCallable('joinRoom').call({
         'code': code,
         'sectorName': sectorName,
+        'participantName': participantName ?? sectorName,
         'notificationReadiness': notificationReadiness,
         'exactAlarmReadiness': exactAlarmReadiness,
         'selectedSoundMode': selectedSoundMode.toStorageString(),
@@ -167,6 +176,7 @@ class RoomRepository {
         uid: user.uid,
         code: code,
         sectorName: sectorName,
+        participantName: participantName ?? sectorName,
         notificationReadiness: notificationReadiness,
         exactAlarmReadiness: exactAlarmReadiness,
         selectedSoundMode: selectedSoundMode,
@@ -179,6 +189,7 @@ class RoomRepository {
     required String uid,
     required String code,
     required String sectorName,
+    required String participantName,
     required bool notificationReadiness,
     required bool exactAlarmReadiness,
     required SoundMode selectedSoundMode,
@@ -201,11 +212,15 @@ class RoomRepository {
       throw Exception('This room is closed.');
     }
 
+    final roomRevision = (roomData['revision'] as num?)?.toInt() ?? 1;
+
     final memberRef = _db.collection('rooms/$roomId/members').doc(uid);
     await memberRef.set({
       'uid': uid,
+      'participantName': participantName,
       'sectorName': sectorName,
       'role': 'sector',
+      'acknowledgedRevision': roomRevision,
       'joinedAt': FieldValue.serverTimestamp(),
       'notificationReadiness': notificationReadiness,
       'exactAlarmReadiness': exactAlarmReadiness,
@@ -217,6 +232,71 @@ class RoomRepository {
       'roomId': roomId,
       'sectorName': sectorName,
     };
+  }
+
+  /// Looks up sectors configured for a room given its 6-digit PIN code.
+  Future<List<String>> getRoomSectorsByCode(String code) async {
+    try {
+      await ensureAuthenticated();
+    } catch (_) {}
+    final codeSnap = await _db.collection('roomCodes').doc(code).get();
+    if (!codeSnap.exists || codeSnap.data() == null) return [];
+    final roomId = codeSnap.data()!['roomId'] as String?;
+    if (roomId == null) return [];
+    final roomSnap = await _db.collection('rooms').doc(roomId).get();
+    if (!roomSnap.exists || roomSnap.data() == null) return [];
+    final data = roomSnap.data()!;
+    final list = data['sectors'] as List<dynamic>?;
+    return list?.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList() ?? [];
+  }
+
+  /// Real-time stream of configured sectors for a room given its 6-digit PIN code.
+  Stream<List<String>> watchRoomSectorsByCode(String code) async* {
+    try {
+      await ensureAuthenticated();
+    } catch (_) {}
+    yield* _db.collection('roomCodes').doc(code).snapshots().asyncExpand((codeSnap) {
+      if (!codeSnap.exists || codeSnap.data() == null) {
+        return Stream.value(<String>[]);
+      }
+      final roomId = codeSnap.data()!['roomId'] as String?;
+      if (roomId == null) {
+        return Stream.value(<String>[]);
+      }
+      return _db.collection('rooms').doc(roomId).snapshots().map((roomSnap) {
+        if (!roomSnap.exists || roomSnap.data() == null) return <String>[];
+        final data = roomSnap.data()!;
+        final list = data['sectors'] as List<dynamic>?;
+        return list?.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList() ?? <String>[];
+      });
+    });
+  }
+
+  /// Updates configured sectors for a room in Firestore
+  Future<void> updateRoomSectors(String roomId, List<String> sectors) async {
+    try {
+      await ensureAuthenticated();
+    } catch (_) {}
+    final cleanSectors = sectors
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList();
+
+    await _db.collection('rooms').doc(roomId).update({
+      'sectors': cleanSectors,
+      'revision': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final uid = currentUid;
+    if (uid != null) {
+      final memberRef = _db.collection('rooms/$roomId/members').doc(uid);
+      await memberRef.set({
+        'acknowledgedRevision': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   /// Starts a Run (Tries Cloud Function, falls back to direct Firestore batch)
@@ -425,6 +505,7 @@ class RoomRepository {
       batch.update(_db.collection('rooms').doc(roomId), {
         'state': 'idle',
         'activeRunId': null,
+        'revision': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       await batch.commit();
@@ -463,6 +544,10 @@ class RoomRepository {
           'pausedPhaseId': pausedPhaseId,
           'remainingMs': remainingMs,
         },
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await _db.collection('rooms').doc(roomId).update({
+        'revision': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       await postFeedEvent(
@@ -512,6 +597,10 @@ class RoomRepository {
         'schedule': scheduleRaw,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      await _db.collection('rooms').doc(roomId).update({
+        'revision': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       await postFeedEvent(
         roomId: roomId,
         title: text('Timer Resumed ▶', 'تم استئناف المؤقت ▶'),
@@ -557,6 +646,10 @@ class RoomRepository {
         'schedule': scheduleRaw,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      await _db.collection('rooms').doc(roomId).update({
+        'revision': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       final label = adjustmentMinutes > 0
           ? '+$adjustmentMinutes mins'
           : '$adjustmentMinutes mins';
@@ -600,6 +693,10 @@ class RoomRepository {
         'schedule': scheduleRaw,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      await _db.collection('rooms').doc(roomId).update({
+        'revision': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       await postFeedEvent(
         roomId: roomId,
         title: text('Round Skipped ⏭', 'تم تخطي الجولة ⏭'),
@@ -635,6 +732,20 @@ class RoomRepository {
     if (targetUid != null) data['targetUid'] = targetUid;
     if (targetSectorName != null) data['targetSectorName'] = targetSectorName;
     await docRef.set(data);
+  }
+
+  /// Acknowledges the received room revision for the current participant.
+  Future<void> acknowledgeRevision({
+    required String roomId,
+    required int revision,
+  }) async {
+    final uid = currentUid;
+    if (uid == null) return;
+    final memberRef = _db.collection('rooms/$roomId/members').doc(uid);
+    await memberRef.set({
+      'acknowledgedRevision': revision,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Updates Member Readiness

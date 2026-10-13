@@ -16,7 +16,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   bool _isCreating = false;
 
-  Future<void> _createRoomDirectly() async {
+  Future<void> _createRoom() async {
     setState(() => _isCreating = true);
     try {
       final repo = ref.read(roomRepositoryProvider);
@@ -145,7 +145,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  onPressed: _isCreating ? null : _createRoomDirectly,
+                  onPressed: _isCreating ? null : _createRoom,
                   icon: _isCreating
                       ? const SizedBox(
                           width: 24,

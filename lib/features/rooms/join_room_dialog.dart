@@ -17,20 +17,83 @@ class JoinRoomDialog extends ConsumerStatefulWidget {
 
 class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
   final _pinController = TextEditingController();
-  final _sectorNameController = TextEditingController();
+  final _participantNameController = TextEditingController();
+  StreamSubscription<List<String>>? _sectorsSubscription;
+  String? _subscribedPin;
+  List<String> _roomSectors = [];
+  String? _selectedSector;
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _pinController.addListener(_onPinChanged);
+    try {
+      ref.read(roomRepositoryProvider).ensureAuthenticated().catchError((_) {
+        return null as dynamic;
+      });
+    } catch (_) {}
+  }
+
+  @override
   void dispose() {
+    _pinController.removeListener(_onPinChanged);
     _pinController.dispose();
-    _sectorNameController.dispose();
+    _participantNameController.dispose();
+    _sectorsSubscription?.cancel();
     super.dispose();
+  }
+
+  void _onPinChanged() {
+    final pin = _pinController.text.trim();
+    if (RegExp(r'^\d{6}$').hasMatch(pin)) {
+      if (_subscribedPin != pin) {
+        _subscribedPin = pin;
+        _sectorsSubscription?.cancel();
+        try {
+          _sectorsSubscription = ref
+              .read(roomRepositoryProvider)
+              .watchRoomSectorsByCode(pin)
+              .listen(
+            (sectors) {
+              if (!mounted) return;
+              setState(() {
+                _roomSectors = sectors;
+                if (_selectedSector == null ||
+                    !sectors.contains(_selectedSector)) {
+                  _selectedSector = sectors.isNotEmpty ? sectors.first : null;
+                }
+              });
+            },
+            onError: (_) {
+              if (!mounted) return;
+              setState(() {
+                _roomSectors = [];
+                _selectedSector = null;
+              });
+            },
+          );
+        } catch (_) {}
+      }
+    } else {
+      if (_subscribedPin != null) {
+        _subscribedPin = null;
+        _sectorsSubscription?.cancel();
+        _sectorsSubscription = null;
+        if (_roomSectors.isNotEmpty || _selectedSector != null) {
+          setState(() {
+            _roomSectors = [];
+            _selectedSector = null;
+          });
+        }
+      }
+    }
   }
 
   Future<void> _joinRoom() async {
     final pin = _pinController.text.trim();
-    final sectorName = _sectorNameController.text.trim();
+    final participantName = _participantNameController.text.trim();
 
     if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
       setState(() {
@@ -42,7 +105,7 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
       return;
     }
 
-    if (sectorName.isEmpty || sectorName.length > 30) {
+    if (participantName.isEmpty || participantName.length > 30) {
       setState(() {
         _errorMessage = context.tr(
           'Participant name must be between 1 and 30 characters.',
@@ -51,6 +114,23 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
       });
       return;
     }
+
+    if (_roomSectors.isEmpty || _selectedSector == null) {
+      setState(() {
+        _errorMessage = _roomSectors.isEmpty
+            ? context.tr(
+                'Waiting for controller to create sectors...',
+                'في انتظار إنشاء القطاعات من المتحكم...',
+              )
+            : context.tr(
+                'Please select a sector to join.',
+                'يرجى اختيار قطاع للانضمام.',
+              );
+      });
+      return;
+    }
+
+    final sectorName = _selectedSector!;
 
     setState(() {
       _isLoading = true;
@@ -68,6 +148,7 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
       final res = await repo.joinRoom(
         code: pin,
         sectorName: sectorName,
+        participantName: participantName,
         notificationReadiness: notificationReadiness,
         exactAlarmReadiness: exactAlarmReadiness,
         selectedSoundMode: soundMode,
@@ -134,12 +215,58 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
             const SizedBox(height: 12),
             TextField(
               key: const ValueKey('participant-name-field'),
-              controller: _sectorNameController,
+              controller: _participantNameController,
               decoration: InputDecoration(
                 labelText: context.tr('Participant Name', 'اسم المشارك'),
                 hintText:
-                    context.tr('e.g. Participant Alpha', 'مثال: المشارك ألفا'),
+                    context.tr('e.g. Abanoub Samy', 'مثال: أبانوب سامي'),
                 border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: context.tr('Sector', 'القطاع'),
+                border: const OutlineInputBorder(),
+                enabled: _roomSectors.isNotEmpty,
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  key: const ValueKey('sector-dropdown-field'),
+                  isDense: true,
+                  isExpanded: true,
+                  value: (_selectedSector != null &&
+                          _roomSectors.contains(_selectedSector))
+                      ? _selectedSector
+                      : null,
+                  hint: Text(
+                    _roomSectors.isEmpty
+                        ? context.tr(
+                            'Waiting for controller to create sectors...',
+                            'في انتظار إنشاء القطاعات من المتحكم...',
+                          )
+                        : context.tr('Select Sector', 'اختر القطاع'),
+                  ),
+                  disabledHint: Text(
+                    context.tr(
+                      'Waiting for controller to create sectors...',
+                      'في انتظار إنشاء القطاعات من المتحكم...',
+                    ),
+                  ),
+                  items: _roomSectors.isEmpty
+                      ? null
+                      : _roomSectors
+                          .map((s) => DropdownMenuItem<String>(
+                                value: s,
+                                child: Text(s),
+                              ))
+                          .toList(),
+                  onChanged: _roomSectors.isEmpty
+                      ? null
+                      : (val) {
+                          if (val != null) setState(() => _selectedSector = val);
+                        },
+                ),
               ),
             ),
             if (_errorMessage != null) ...[

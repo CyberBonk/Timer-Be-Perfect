@@ -28,6 +28,24 @@ void main() {
     expect(prefs.getString('user_sector_name'), 'Alpha');
   });
 
+  test('dynamic limits notifiers update in memory and persist locally', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container.read(maxRoundDurationProvider.notifier).update(90);
+    await container.read(maxCooldownSecondsProvider.notifier).update(600);
+    await container.read(cooldownStepSecondsProvider.notifier).update(30);
+
+    expect(container.read(maxRoundDurationProvider), 90);
+    expect(container.read(maxCooldownSecondsProvider), 600);
+    expect(container.read(cooldownStepSecondsProvider), 30);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('max_round_duration_minutes'), 90);
+    expect(prefs.getInt('max_cooldown_seconds'), 600);
+    expect(prefs.getInt('cooldown_step_seconds'), 30);
+  });
+
   test('sound mode notifier changes without external dependencies', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

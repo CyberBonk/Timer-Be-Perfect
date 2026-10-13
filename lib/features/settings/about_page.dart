@@ -83,12 +83,15 @@ class _AboutPageState extends State<AboutPage> {
                   children: [
                     TextSpan(
                       text: context.tr(
-                        'Developed for Be Perfect by ',
-                        'طُوّر لصالح Be Perfect بواسطة ',
+                        'Developed by ',
+                        'طُوّر بواسطة ',
                       ),
                     ),
                     TextSpan(
-                      text: 'Abanoub Samy (CyberBonk)',
+                      text: context.tr(
+                        'Abanoub Samy (CyberBonk)',
+                        'أبانوب سامي (CyberBonk)',
+                      ),
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.bold,

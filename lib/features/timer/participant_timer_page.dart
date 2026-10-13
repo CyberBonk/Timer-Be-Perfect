@@ -9,6 +9,7 @@ import '../../core/notifications/ringer_service.dart';
 import '../../core/timer/schedule_engine.dart';
 
 import 'timer_display_widget.dart';
+import 'sector_cards_widget.dart';
 
 class ParticipantTimerPage extends ConsumerStatefulWidget {
   const ParticipantTimerPage({super.key});
@@ -92,6 +93,35 @@ class _ParticipantTimerPageState extends ConsumerState<ParticipantTimerPage> {
     final activeRunAsync = ref.watch(activeRunStreamProvider);
     final connectionAsync = ref.watch(firebaseConnectionProvider);
     final memberAsync = ref.watch(currentMemberStreamProvider);
+    final membersAsync = ref.watch(membersStreamProvider);
+
+    ref.listen(roomStreamProvider, (prev, next) {
+      final room = next.asData?.value;
+      if (room != null) {
+        final currentMember =
+            ref.read(currentMemberStreamProvider).asData?.value;
+        if (currentMember != null &&
+            currentMember.acknowledgedRevision < room.revision) {
+          unawaited(ref.read(roomRepositoryProvider).acknowledgeRevision(
+                roomId: room.roomId,
+                revision: room.revision,
+              ));
+        }
+      }
+    });
+
+    ref.listen(currentMemberStreamProvider, (prev, next) {
+      final currentMember = next.asData?.value;
+      final room = ref.read(roomStreamProvider).asData?.value;
+      if (room != null &&
+          currentMember != null &&
+          currentMember.acknowledgedRevision < room.revision) {
+        unawaited(ref.read(roomRepositoryProvider).acknowledgeRevision(
+              roomId: room.roomId,
+              revision: room.revision,
+            ));
+      }
+    });
     return roomAsync.when(
       data: (room) {
         if (room == null) {
@@ -236,6 +266,16 @@ class _ParticipantTimerPageState extends ConsumerState<ParticipantTimerPage> {
                               ),
                               style: theme.textTheme.titleMedium,
                             ),
+                            const SizedBox(height: 24),
+                            membersAsync.when(
+                              data: (members) => SectorCardsWidget(
+                                room: room,
+                                members: members,
+                                isController: false,
+                              ),
+                              loading: () => const CircularProgressIndicator(),
+                              error: (err, _) => const SizedBox.shrink(),
+                            ),
                           ],
                         );
                       }
@@ -286,6 +326,16 @@ class _ParticipantTimerPageState extends ConsumerState<ParticipantTimerPage> {
                               ),
                             ),
                           ],
+                          const SizedBox(height: 24),
+                          membersAsync.when(
+                            data: (members) => SectorCardsWidget(
+                              room: room,
+                              members: members,
+                              isController: false,
+                            ),
+                            loading: () => const CircularProgressIndicator(),
+                            error: (err, _) => const SizedBox.shrink(),
+                          ),
                         ],
                       );
                     },

@@ -11,6 +11,8 @@ import '../../core/models/member_model.dart';
 import '../../core/models/run_model.dart';
 import '../../core/timer/schedule_engine.dart';
 import 'timer_display_widget.dart';
+import 'sector_cards_widget.dart';
+import 'sector_management_card.dart';
 
 class ControllerDashboardPage extends ConsumerStatefulWidget {
   const ControllerDashboardPage({super.key});
@@ -159,12 +161,13 @@ class _ControllerDashboardPageState
   }
 
   Future<void> _pickDurationMinutes() async {
+    final maxDuration = ref.read(maxRoundDurationProvider);
     final selected = await _showNumberPickerDialog(
       context: context,
       title: context.tr('Select Round Duration', 'اختر مدة الجولة'),
-      initialValue: _durationMinutes,
+      initialValue: _durationMinutes.clamp(1, maxDuration),
       minValue: 1,
-      maxValue: 60,
+      maxValue: maxDuration,
       suffix: context.tr('mins', 'دقائق'),
     );
     if (selected != null) {
@@ -173,14 +176,16 @@ class _ControllerDashboardPageState
   }
 
   Future<void> _pickCooldownSeconds() async {
+    final maxCooldown = ref.read(maxCooldownSecondsProvider);
+    final step = ref.read(cooldownStepSecondsProvider);
     final selected = await _showNumberPickerDialog(
       context: context,
       title: context.tr('Select Cooldown', 'اختر مدة الراحة'),
-      initialValue: _cooldownSeconds,
+      initialValue: _cooldownSeconds.clamp(0, maxCooldown),
       minValue: 0,
-      maxValue: 300,
+      maxValue: maxCooldown,
       suffix: context.tr('seconds', 'ثوانٍ'),
-      step: 15,
+      step: step,
     );
     if (selected != null) {
       setState(() => _cooldownSeconds = selected);
@@ -188,6 +193,37 @@ class _ControllerDashboardPageState
   }
 
   Future<void> _startRun(Room room, List<Member> members) async {
+    if (room.sectors.isEmpty) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(
+            context.tr('Warning', 'تحذير'),
+          ),
+          content: Text(
+            context.tr(
+              'Warning: Creating a sectorless session. The event will run in legacy single-tier mode.',
+              'تحذير: إنشاء جلسة بدون قطاعات. ستعمل الفعالية في الوضع الفردي التقليدي.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(context.tr('Add Sectors', 'إضافة قطاعات')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(context.tr('Proceed', 'متابعة')),
+            ),
+          ],
+        ),
+      );
+
+      if (proceed != true) return;
+    }
+
+    if (!mounted) return;
+
     final unreadyMembers = members.where(
       (m) =>
           m.uid != room.ownerUid &&
@@ -325,7 +361,6 @@ class _ControllerDashboardPageState
     final roomAsync = ref.watch(roomStreamProvider);
     final activeRunAsync = ref.watch(activeRunStreamProvider);
     final membersAsync = ref.watch(membersStreamProvider);
-    final presenceMapAsync = ref.watch(presenceStreamProvider);
     final connectionAsync = ref.watch(firebaseConnectionProvider);
 
     return roomAsync.when(
@@ -342,8 +377,11 @@ class _ControllerDashboardPageState
         }
 
         final members = membersAsync.asData?.value ?? [];
-        final presenceMap = presenceMapAsync.asData?.value ?? {};
         final isFirebaseConnected = connectionAsync.asData?.value;
+        final activeRun = activeRunAsync.asData?.value;
+        final isLocked = activeRun != null &&
+            (activeRun.status == RunStatus.running ||
+                activeRun.status == RunStatus.paused);
 
         return SingleChildScrollView(
           padding: const EdgeInsets.only(
@@ -471,6 +509,12 @@ class _ControllerDashboardPageState
                     },
                   ),
                 ),
+              ),
+              const SizedBox(height: 16),
+              SectorManagementCard(
+                room: room,
+                members: members,
+                isLocked: isLocked,
               ),
               const SizedBox(height: 16),
 
@@ -785,125 +829,11 @@ class _ControllerDashboardPageState
                 ),
               ),
               const SizedBox(height: 24),
-
-              Text(
-                context.tr(
-                  'Joined Participants (${members.length})',
-                  'قائمة المشاركين المنضمين (${members.length})',
-                ),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              SectorCardsWidget(
+                room: room,
+                members: members,
+                isController: true,
               ),
-              const SizedBox(height: 8),
-              if (members.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  child: Text(
-                    context.tr(
-                      'No participant devices have joined yet.',
-                      'لم تنضم أي أجهزة مشاركين حتى الآن.',
-                    ),
-                  ),
-                )
-              else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: members.length,
-                  itemBuilder: (context, index) {
-                    final member = members[index];
-                    final presence = presenceMap[member.uid];
-                    final currentUid =
-                        ref.read(roomRepositoryProvider).currentUid;
-                    final heartbeatOnline = member.lastSeenAt > 0 &&
-                        DateTime.now().millisecondsSinceEpoch -
-                                member.lastSeenAt <
-                            45 * 1000;
-                    final isOnline = (presence?.isOnline ?? false) ||
-                        heartbeatOnline ||
-                        (member.uid == currentUid &&
-                            (isFirebaseConnected ?? false));
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        leading: CircleAvatar(
-                          backgroundColor: isOnline
-                              ? theme.colorScheme.primaryContainer
-                              : theme.colorScheme.surfaceContainerHighest,
-                          child: Icon(
-                            isOnline
-                                ? Icons.cell_tower
-                                : Icons.signal_cellular_off,
-                            color: isOnline
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.outline,
-                            size: 18,
-                          ),
-                        ),
-                        title: Text(
-                          member.sectorName,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          isOnline
-                              ? context.tr('Online', 'متصل')
-                              : context.tr('Offline', 'غير متصل'),
-                          style: TextStyle(
-                            color: isOnline
-                                ? Colors.green
-                                : theme.colorScheme.error,
-                            fontSize: 12,
-                          ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              member.notificationReadiness
-                                  ? Icons.notifications_active
-                                  : Icons.notifications_off,
-                              size: 16,
-                              color: member.notificationReadiness
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.error,
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(
-                              member.exactAlarmReadiness
-                                  ? Icons.alarm_on
-                                  : Icons.alarm_off,
-                              size: 16,
-                              color: member.exactAlarmReadiness
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.error,
-                            ),
-                            if (member.uid != room.ownerUid) ...[
-                              IconButton(
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(4),
-                                icon: const Icon(Icons.person_remove_outlined,
-                                    size: 18),
-                                color: theme.colorScheme.error,
-                                onPressed: () async {
-                                  final repo = ref.read(roomRepositoryProvider);
-                                  await repo.removeMember(
-                                    roomId: room.roomId,
-                                    targetUid: member.uid,
-                                  );
-                                },
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
             ],
           ),
         );

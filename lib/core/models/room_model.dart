@@ -7,7 +7,8 @@ class Room {
   final String ownerUid;
   final RoomState state;
 
-  /// Null means the room accepts any number of participants.
+  /// Optional sector list configured for the room.
+  final List<String> sectors;
   final int? sectorCapacity;
   final String? activeRunId;
   final int revision;
@@ -19,6 +20,7 @@ class Room {
     required this.roomId,
     required this.ownerUid,
     required this.state,
+    this.sectors = const [],
     required this.sectorCapacity,
     this.activeRunId,
     required this.revision,
@@ -41,6 +43,11 @@ class Room {
       roomId: json['roomId'] as String? ?? '',
       ownerUid: json['ownerUid'] as String? ?? '',
       state: _parseState(json['state'] as String?),
+      sectors: (json['sectors'] as List<dynamic>?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
       sectorCapacity: (json['sectorCapacity'] as num?)?.toInt(),
       activeRunId: json['activeRunId'] as String?,
       revision: (json['revision'] as num?)?.toInt() ?? 1,
@@ -69,6 +76,7 @@ class Room {
         'roomId': roomId,
         'ownerUid': ownerUid,
         'state': state.name,
+        'sectors': sectors,
         'sectorCapacity': sectorCapacity,
         'activeRunId': activeRunId,
         'revision': revision,

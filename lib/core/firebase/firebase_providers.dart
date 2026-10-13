@@ -43,6 +43,96 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 const _activeRoomIdKey = 'active_room_id';
 const _activeRoomPinKey = 'active_room_pin';
 const _userSectorNameKey = 'user_sector_name';
+const _maxRoundDurationKey = 'max_round_duration_minutes';
+const _maxCooldownSecondsKey = 'max_cooldown_seconds';
+const _cooldownStepSecondsKey = 'cooldown_step_seconds';
+
+class MaxRoundDurationNotifier extends Notifier<int> {
+  var _hasLocalUpdate = false;
+
+  @override
+  int build() {
+    unawaited(_restore());
+    return 60; // default 60m
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!_hasLocalUpdate) {
+      final val = prefs.getInt(_maxRoundDurationKey);
+      if (val != null) state = val;
+    }
+  }
+
+  Future<void> update(int val) async {
+    _hasLocalUpdate = true;
+    state = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxRoundDurationKey, val);
+  }
+}
+
+final maxRoundDurationProvider =
+    NotifierProvider<MaxRoundDurationNotifier, int>(
+        MaxRoundDurationNotifier.new);
+
+class MaxCooldownSecondsNotifier extends Notifier<int> {
+  var _hasLocalUpdate = false;
+
+  @override
+  int build() {
+    unawaited(_restore());
+    return 300; // default 300s (5m)
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!_hasLocalUpdate) {
+      final val = prefs.getInt(_maxCooldownSecondsKey);
+      if (val != null) state = val;
+    }
+  }
+
+  Future<void> update(int val) async {
+    _hasLocalUpdate = true;
+    state = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxCooldownSecondsKey, val);
+  }
+}
+
+final maxCooldownSecondsProvider =
+    NotifierProvider<MaxCooldownSecondsNotifier, int>(
+        MaxCooldownSecondsNotifier.new);
+
+class CooldownStepSecondsNotifier extends Notifier<int> {
+  var _hasLocalUpdate = false;
+
+  @override
+  int build() {
+    unawaited(_restore());
+    return 15; // default 15s step
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!_hasLocalUpdate) {
+      final val = prefs.getInt(_cooldownStepSecondsKey);
+      if (val != null) state = val;
+    }
+  }
+
+  Future<void> update(int val) async {
+    _hasLocalUpdate = true;
+    state = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_cooldownStepSecondsKey, val);
+  }
+}
+
+final cooldownStepSecondsProvider =
+    NotifierProvider<CooldownStepSecondsNotifier, int>(
+        CooldownStepSecondsNotifier.new);
 
 class ActiveRoomIdNotifier extends Notifier<String?> {
   var _hasLocalUpdate = false;

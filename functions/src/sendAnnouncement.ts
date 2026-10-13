@@ -67,6 +67,15 @@ export async function handleSendAnnouncement(
       let recipientUids: string[] = [];
       if (request.data.targetUid) {
         recipientUids = [request.data.targetUid];
+      } else if (request.data.targetSectorName) {
+        const membersSnap = await tx.get(db.collection(`rooms/${roomId}/members`));
+        const targetSectorLower = request.data.targetSectorName.toLowerCase();
+        recipientUids = membersSnap.docs
+          .filter(d => {
+            const m = d.data() as Member;
+            return d.id !== uid && m.sectorName && m.sectorName.toLowerCase() === targetSectorLower;
+          })
+          .map(d => d.id);
       } else {
         const membersSnap = await tx.get(db.collection(`rooms/${roomId}/members`));
         recipientUids = membersSnap.docs.map(d => d.id).filter(id => id !== uid);

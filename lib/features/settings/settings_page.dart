@@ -9,6 +9,7 @@ import '../../core/firebase/firebase_providers.dart';
 import '../../core/localization/app_locale.dart';
 import '../../core/models/sound_mode.dart';
 import '../../core/notifications/ringer_service.dart';
+import '../../core/notifications/wakelock_service.dart';
 import '../../core/theme/app_theme.dart';
 import 'about_page.dart';
 import 'developer_info_page.dart';
@@ -199,6 +200,105 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
           const SizedBox(height: 24),
 
+          // Dynamic Timer Limits
+          Text(
+            context.tr('Timer Limits & Step Settings', 'حدود المؤقت والخطوات'),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: Text(context.tr(
+                    'Maximum Round Duration',
+                    'الحد الأقصى لمدة الجولة',
+                  )),
+                  subtitle: Text(
+                    '${ref.watch(maxRoundDurationProvider)} ${context.tr("mins", "دقائق")}',
+                  ),
+                  trailing: DropdownButton<int>(
+                    value: ref.watch(maxRoundDurationProvider),
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: 30, child: Text('30m')),
+                      DropdownMenuItem(value: 60, child: Text('60m')),
+                      DropdownMenuItem(value: 90, child: Text('90m')),
+                      DropdownMenuItem(value: 120, child: Text('120m')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        ref.read(maxRoundDurationProvider.notifier).update(val);
+                      }
+                    },
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.snooze_outlined),
+                  title: Text(context.tr(
+                    'Maximum Cooldown Duration',
+                    'الحد الأقصى لمدة الراحة',
+                  )),
+                  subtitle: Text(
+                    '${ref.watch(maxCooldownSecondsProvider)}s (${(ref.watch(maxCooldownSecondsProvider) / 60).toStringAsFixed(ref.watch(maxCooldownSecondsProvider) % 60 == 0 ? 0 : 1)}m)',
+                  ),
+                  trailing: DropdownButton<int>(
+                    value: ref.watch(maxCooldownSecondsProvider),
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: 180, child: Text('180s (3m)')),
+                      DropdownMenuItem(value: 300, child: Text('300s (5m)')),
+                      DropdownMenuItem(value: 600, child: Text('600s (10m)')),
+                      DropdownMenuItem(value: 900, child: Text('900s (15m)')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        ref
+                            .read(maxCooldownSecondsProvider.notifier)
+                            .update(val);
+                      }
+                    },
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.linear_scale_outlined),
+                  title: Text(context.tr(
+                    'Cooldown Increment Step',
+                    'خطوة زيادة وقت الراحة',
+                  )),
+                  subtitle: Text(
+                    '${ref.watch(cooldownStepSecondsProvider)}s',
+                  ),
+                  trailing: DropdownButton<int>(
+                    value: ref.watch(cooldownStepSecondsProvider),
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: 5, child: Text('5s')),
+                      DropdownMenuItem(value: 10, child: Text('10s')),
+                      DropdownMenuItem(value: 15, child: Text('15s')),
+                      DropdownMenuItem(value: 30, child: Text('30s')),
+                      DropdownMenuItem(value: 60, child: Text('60s')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        ref
+                            .read(cooldownStepSecondsProvider.notifier)
+                            .update(val);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // Sound & Alarm Settings
           Text(
             context.tr('Sound & Alarm Settings', 'إعدادات الصوت والتنبيه'),
@@ -349,8 +449,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
               subtitle: Text(
                 context.tr(
-                  'Developed by CyberBonk (@CyberBonk)',
-                  'طُوّر بواسطة CyberBonk (@CyberBonk)',
+                  'Developed by Abanoub Samy (CyberBonk)',
+                  'طُوّر بواسطة أبانوب سامي (CyberBonk)',
                 ),
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -404,6 +504,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 await ref
                     .read(notificationServiceProvider)
                     .cancelRoomNotifications(roomId);
+                unawaited(WakeLockService().release());
                 await RingerService().restoreVolumes();
                 await ref.read(activeRoomIdProvider.notifier).update(null);
                 await ref.read(activeRoomPinProvider.notifier).update(null);

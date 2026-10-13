@@ -7,6 +7,7 @@ import '../core/firebase/room_authorization.dart';
 import '../core/localization/app_locale.dart';
 import '../core/notifications/notification_service.dart';
 import '../core/notifications/ringer_service.dart';
+import '../core/notifications/wakelock_service.dart';
 import '../core/timer/schedule_engine.dart';
 import '../core/models/room_model.dart';
 import '../core/models/run_model.dart';
@@ -197,10 +198,13 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
         // Run ended — cancel the ongoing notification. Keep the forced audio
         // session alive long enough for the boundary alarm to be delivered.
         NotificationService().cancelRoomNotifications(roomId);
+        unawaited(WakeLockService().release());
         _lastDerivedState = null;
         _scheduledAlarmKey = null;
         return;
       }
+
+      unawaited(WakeLockService().acquire());
 
       // A new run starts a fresh transition sequence.
       if (prev?.asData?.value?.runId != run.runId) {
@@ -250,8 +254,19 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
           _seenFeedEventIds.add(event.eventId);
           if (event.notifyDevices) {
             if (event.targetUid != null) {
-              // Targeted notification: only ring/notify the target participant!
+              // Targeted notification to specific participant
               if (currentUid == event.targetUid) {
+                NotificationService().showActionNotification(
+                  title: event.title,
+                  body: event.body,
+                );
+              }
+            } else if (event.targetSectorName != null) {
+              // Sector-targeted notification: notify all members of that sector except sender
+              final mySector = ref.read(userSectorNameProvider);
+              if ((currentUid == null || currentUid != event.senderUid) &&
+                  mySector != null &&
+                  mySector.toLowerCase() == event.targetSectorName!.toLowerCase()) {
                 NotificationService().showActionNotification(
                   title: event.title,
                   body: event.body,
@@ -294,6 +309,35 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
       if (roomId != null &&
           (denied || next.asData?.value?.state == RoomState.closed)) {
         unawaited(_returnViewerHome(roomId));
+      }
+    });
+
+    // Ensure participants and controllers automatically acknowledge room revisions regardless of active tab
+    ref.listen(roomStreamProvider, (prev, next) {
+      final room = next.asData?.value;
+      if (room != null) {
+        final currentMember =
+            ref.read(currentMemberStreamProvider).asData?.value;
+        if (currentMember != null &&
+            currentMember.acknowledgedRevision < room.revision) {
+          unawaited(ref.read(roomRepositoryProvider).acknowledgeRevision(
+                roomId: room.roomId,
+                revision: room.revision,
+              ));
+        }
+      }
+    });
+
+    ref.listen(currentMemberStreamProvider, (prev, next) {
+      final currentMember = next.asData?.value;
+      final room = ref.read(roomStreamProvider).asData?.value;
+      if (room != null &&
+          currentMember != null &&
+          currentMember.acknowledgedRevision < room.revision) {
+        unawaited(ref.read(roomRepositoryProvider).acknowledgeRevision(
+              roomId: room.roomId,
+              revision: room.revision,
+            ));
       }
     });
 
@@ -476,6 +520,7 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
           ),
         );
     await RingerService().restoreVolumes();
+    unawaited(WakeLockService().release());
     ref.read(presenceServiceProvider).unregisterPresence();
     _presenceRoomId = null;
     _presenceUid = null;
@@ -502,6 +547,7 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
     unawaited(
       ref.read(notificationServiceProvider).cancelRoomNotifications(roomId),
     );
+    unawaited(WakeLockService().release());
     ref.read(presenceServiceProvider).unregisterPresence();
     _presenceRoomId = null;
     _presenceUid = null;
@@ -543,6 +589,8 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
     ref.read(presenceServiceProvider).unregisterPresence();
     _presenceRoomId = null;
     _presenceUid = null;
+    await NotificationService().cancelRoomNotifications(roomId);
+    unawaited(WakeLockService().release());
     await RingerService().restoreVolumes();
     await ref.read(activeRoomIdProvider.notifier).update(null);
     await ref.read(activeRoomPinProvider.notifier).update(null);
@@ -582,6 +630,7 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
     // Leave locally first. A slow/offline Firebase write must never trap the
     // controller on a loading screen or make exit look like a reload.
     await ref.read(notificationServiceProvider).cancelRoomNotifications(roomId);
+    unawaited(WakeLockService().release());
     ref.read(presenceServiceProvider).unregisterPresence();
     _presenceRoomId = null;
     _presenceUid = null;

@@ -83,6 +83,26 @@ String _systemSummary(BuildContext context, FeedEvent event) {
   return event.title;
 }
 
+class _AnnouncementTarget {
+  final Member? member;
+  final String? sectorName;
+  final String label;
+
+  _AnnouncementTarget.member(Member m)
+      : member = m,
+        sectorName = m.sectorName,
+        label = m.participantName.isNotEmpty ? m.participantName : m.sectorName;
+
+  _AnnouncementTarget.sector(String s)
+      : member = null,
+        sectorName = s,
+        label = s;
+
+  String? get targetUid => member?.uid;
+  String get targetSectorName => label;
+  bool get isMember => member != null;
+}
+
 class AnnouncementsPage extends ConsumerStatefulWidget {
   final bool isController;
   const AnnouncementsPage({super.key, this.isController = false});
@@ -96,7 +116,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
   bool _notifyDevices = true;
   bool _isSending = false;
   String? _mentionQuery;
-  Member? _selectedTargetMember;
+  _AnnouncementTarget? _selectedTarget;
 
   @override
   void initState() {
@@ -133,9 +153,9 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
       setState(() => _mentionQuery = null);
     }
 
-    if (_selectedTargetMember != null &&
-        !text.contains('@${_selectedTargetMember!.sectorName}')) {
-      setState(() => _selectedTargetMember = null);
+    if (_selectedTarget != null &&
+        !text.toLowerCase().contains('@${_selectedTarget!.label.toLowerCase()}')) {
+      setState(() => _selectedTarget = null);
     }
   }
 
@@ -156,7 +176,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
     setState(() => _mentionQuery = '');
   }
 
-  void _selectMentionTarget(Member member) {
+  void _selectMentionSector(String sector) {
     final text = _messageController.text;
     final selection = _messageController.selection;
     final cursorPos =
@@ -168,20 +188,57 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
     String newText;
     int newCursor;
     if (lastAt != -1) {
-      newText =
-          '${text.substring(0, lastAt)}@${member.sectorName} $afterCursor';
-      newCursor = lastAt + member.sectorName.length + 2;
+      newText = '${text.substring(0, lastAt)}@$sector $afterCursor';
+      newCursor = lastAt + sector.length + 2;
     } else {
       if (text.isEmpty) {
-        newText = '@${member.sectorName} ';
+        newText = '@$sector ';
       } else {
-        newText = '@${member.sectorName} $text';
+        newText = '@$sector $text';
       }
-      newCursor = member.sectorName.length + 2;
+      newCursor = sector.length + 2;
     }
 
     setState(() {
-      _selectedTargetMember = member;
+      _selectedTarget = _AnnouncementTarget.sector(sector);
+      _mentionQuery = null;
+    });
+
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCursor),
+    );
+  }
+
+  void _selectMentionMember(Member member) {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+    final textBeforeCursor = text.substring(0, cursorPos);
+    final lastAt = textBeforeCursor.lastIndexOf('@');
+    final afterCursor = text.substring(cursorPos);
+
+    final insertName = member.participantName.isNotEmpty
+        ? member.participantName
+        : member.sectorName;
+
+    String newText;
+    int newCursor;
+    if (lastAt != -1) {
+      newText = '${text.substring(0, lastAt)}@$insertName $afterCursor';
+      newCursor = lastAt + insertName.length + 2;
+    } else {
+      if (text.isEmpty) {
+        newText = '@$insertName ';
+      } else {
+        newText = '@$insertName $text';
+      }
+      newCursor = insertName.length + 2;
+    }
+
+    setState(() {
+      _selectedTarget = _AnnouncementTarget.member(member);
       _mentionQuery = null;
     });
 
@@ -200,18 +257,37 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
     final sectorName = ref.read(userSectorNameProvider);
     final members = ref.read(membersStreamProvider).asData?.value ?? [];
     final currentUid = ref.read(roomRepositoryProvider).currentUid;
+    final room = ref.read(roomStreamProvider).asData?.value;
 
-    String? targetUid = _selectedTargetMember?.uid;
-    String? targetSectorName = _selectedTargetMember?.sectorName;
+    String? targetUid = _selectedTarget?.targetUid;
+    String? targetSectorName = _selectedTarget?.targetSectorName;
 
     // If target was not chosen via tap, auto-resolve by matching @Name in text
-    if (targetUid == null) {
-      for (final m in members) {
-        if (m.uid != currentUid &&
-            text.toLowerCase().contains('@${m.sectorName.toLowerCase()}')) {
-          targetUid = m.uid;
-          targetSectorName = m.sectorName;
+    if (targetUid == null && targetSectorName == null) {
+      final textLower = text.toLowerCase();
+      final roomSectors = room?.sectors ?? <String>[];
+      final memberSectors =
+          members.map((m) => m.sectorName).where((s) => s.isNotEmpty);
+      final allSectors = {...roomSectors, ...memberSectors};
+
+      // 1. Check sectors first (primary)
+      for (final s in allSectors) {
+        if (s.isNotEmpty && textLower.contains('@${s.toLowerCase()}')) {
+          targetSectorName = s;
           break;
+        }
+      }
+
+      // 2. Check participant names next (bonus)
+      if (targetSectorName == null) {
+        for (final m in members) {
+          if (m.uid != currentUid && m.participantName.isNotEmpty) {
+            if (textLower.contains('@${m.participantName.toLowerCase()}')) {
+              targetUid = m.uid;
+              targetSectorName = m.participantName;
+              break;
+            }
+          }
         }
       }
     }
@@ -242,7 +318,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
       );
       _messageController.clear();
       setState(() {
-        _selectedTargetMember = null;
+        _selectedTarget = null;
         _mentionQuery = null;
       });
     } catch (e) {
@@ -266,26 +342,58 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
     final feedAsync = ref.watch(feedStreamProvider);
     final membersAsync = ref.watch(membersStreamProvider);
     final currentUid = ref.watch(currentUidProvider);
+    final roomAsync = ref.watch(roomStreamProvider);
+    final userSectorName = ref.watch(userSectorNameProvider);
+    final room = roomAsync.asData?.value;
     final allMembers = membersAsync.asData?.value ?? [];
     final eligibleMembers =
         allMembers.where((m) => m.uid != currentUid).toList();
 
+    final roomSectors = room?.sectors ?? <String>[];
+    final memberSectors =
+        eligibleMembers.map((m) => m.sectorName).where((s) => s.isNotEmpty);
+    final allSectors = {...roomSectors, ...memberSectors}.toList();
+
+    List<String> matchingSectors = [];
     List<Member> matchingMembers = [];
+
     if (_mentionQuery != null) {
       final q = _mentionQuery!.trim().toLowerCase();
       if (q.isEmpty) {
-        matchingMembers = eligibleMembers.take(6).toList();
-      } else {
-        final startsWithMatches = eligibleMembers
-            .where((m) => m.sectorName.toLowerCase().startsWith(q))
-            .toList();
-        final containsMatches = eligibleMembers
+        matchingSectors = allSectors.take(6).toList();
+        matchingMembers = eligibleMembers
             .where((m) =>
-                !m.sectorName.toLowerCase().startsWith(q) &&
-                m.sectorName.toLowerCase().contains(q))
+                m.participantName.toLowerCase() != m.sectorName.toLowerCase())
+            .take(6)
+            .toList();
+      } else {
+        // Sectors (Primary)
+        final startsWithSectors =
+            allSectors.where((s) => s.toLowerCase().startsWith(q)).toList();
+        final containsSectors = allSectors
+            .where((s) =>
+                !s.toLowerCase().startsWith(q) && s.toLowerCase().contains(q))
+            .toList();
+        matchingSectors =
+            [...startsWithSectors, ...containsSectors].take(6).toList();
+
+        // Participants (Bonus)
+        final startsWithMembers = eligibleMembers
+            .where((m) =>
+                m.participantName.toLowerCase().startsWith(q) ||
+                (m.participantName.toLowerCase() != m.sectorName.toLowerCase() &&
+                    m.sectorName.toLowerCase().startsWith(q)))
+            .toList();
+        final containsMembers = eligibleMembers
+            .where((m) =>
+                !startsWithMembers.contains(m) &&
+                (m.participantName.toLowerCase().contains(q) ||
+                    (m.participantName.toLowerCase() !=
+                            m.sectorName.toLowerCase() &&
+                        m.sectorName.toLowerCase().contains(q))))
             .toList();
         matchingMembers =
-            [...startsWithMatches, ...containsMatches].take(6).toList();
+            [...startsWithMembers, ...containsMembers].take(6).toList();
       }
     }
 
@@ -320,8 +428,13 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
 
                   if (isAnnouncement || event.title.contains('Event Ended')) {
                     final currentUid = ref.watch(currentUidProvider);
-                    final isTargetedToMe =
-                        event.targetUid != null && event.targetUid == currentUid;
+                    final isTargetedToMe = (event.targetUid != null &&
+                            event.targetUid == currentUid) ||
+                        (event.targetUid == null &&
+                            event.targetSectorName != null &&
+                            userSectorName != null &&
+                            event.targetSectorName!.toLowerCase() ==
+                                userSectorName.toLowerCase());
                     final isTargeted = event.targetSectorName != null;
 
                     return Card(
@@ -570,7 +683,8 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_mentionQuery != null && matchingMembers.isNotEmpty) ...[
+              if (_mentionQuery != null &&
+                  (matchingSectors.isNotEmpty || matchingMembers.isNotEmpty)) ...[
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding:
@@ -598,8 +712,8 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                           const SizedBox(width: 4),
                           Text(
                             context.tr(
-                              'Mention participant (exclusive alert)',
-                              'إشارة إلى مشارك (تنبيه حصري)',
+                              'Mention sector or participant',
+                              'إشارة إلى قطاع أو مشارك',
                             ),
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.primary,
@@ -613,38 +727,75 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                         height: 38,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
-                          itemCount: matchingMembers.length,
+                          itemCount:
+                              matchingSectors.length + matchingMembers.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 6),
                           itemBuilder: (context, index) {
-                            final member = matchingMembers[index];
-                            return ActionChip(
-                              avatar: CircleAvatar(
-                                radius: 11,
-                                backgroundColor:
-                                    theme.colorScheme.primaryContainer,
-                                child: Text(
-                                  member.sectorName.isNotEmpty
-                                      ? member.sectorName[0].toUpperCase()
-                                      : '?',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
+                            if (index < matchingSectors.length) {
+                              final sector = matchingSectors[index];
+                              return ActionChip(
+                                avatar: CircleAvatar(
+                                  radius: 11,
+                                  backgroundColor:
+                                      theme.colorScheme.primaryContainer,
+                                  child: Icon(
+                                    Icons.groups_rounded,
+                                    size: 13,
                                     color:
                                         theme.colorScheme.onPrimaryContainer,
                                   ),
                                 ),
+                                label: Text(
+                                  '@$sector',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                backgroundColor: theme.colorScheme.surface,
+                                side: BorderSide(
+                                  color: theme.colorScheme.primary
+                                      .withValues(alpha: 0.35),
+                                ),
+                                onPressed: () => _selectMentionSector(sector),
+                              );
+                            }
+                            final member =
+                                matchingMembers[index - matchingSectors.length];
+                            final hasDistinctSector = member
+                                    .sectorName.isNotEmpty &&
+                                member.sectorName.toLowerCase() !=
+                                    member.participantName.toLowerCase();
+                            final chipLabel = hasDistinctSector
+                                ? '@${member.participantName} (${member.sectorName})'
+                                : '@${member.participantName}';
+                            return ActionChip(
+                              avatar: CircleAvatar(
+                                radius: 11,
+                                backgroundColor:
+                                    theme.colorScheme.secondaryContainer,
+                                child: Text(
+                                  member.participantName.isNotEmpty
+                                      ? member.participantName[0].toUpperCase()
+                                      : '?',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        theme.colorScheme.onSecondaryContainer,
+                                  ),
+                                ),
                               ),
                               label: Text(
-                                '@${member.sectorName}',
+                                chipLabel,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600),
                               ),
                               visualDensity: VisualDensity.compact,
                               backgroundColor: theme.colorScheme.surface,
                               side: BorderSide(
-                                color: theme.colorScheme.primary
+                                color: theme.colorScheme.secondary
                                     .withValues(alpha: 0.35),
                               ),
-                              onPressed: () => _selectMentionTarget(member),
+                              onPressed: () => _selectMentionMember(member),
                             );
                           },
                         ),
@@ -653,6 +804,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                   ),
                 ),
               ] else if (_mentionQuery != null &&
+                  matchingSectors.isEmpty &&
                   matchingMembers.isEmpty &&
                   _mentionQuery!.isNotEmpty) ...[
                 Padding(
@@ -670,7 +822,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                   ),
                 ),
               ],
-              if (_selectedTargetMember != null) ...[
+              if (_selectedTarget != null) ...[
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: InputChip(
@@ -685,8 +837,8 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                     ),
                     label: Text(
                       context.tr(
-                        'Targeting @${_selectedTargetMember!.sectorName} (Exclusive sound alert)',
-                        'موجه إلى @${_selectedTargetMember!.sectorName} (تنبيه صوتي حصري)',
+                        'Targeting @${_selectedTarget!.label} (Exclusive sound alert)',
+                        'موجه إلى @${_selectedTarget!.label} (تنبيه صوتي حصري)',
                       ),
                       style: theme.textTheme.labelSmall?.copyWith(
                         fontWeight: FontWeight.bold,
@@ -696,7 +848,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                     backgroundColor: theme.colorScheme.primaryContainer,
                     deleteIcon: const Icon(Icons.close, size: 14),
                     onDeleted: () {
-                      setState(() => _selectedTargetMember = null);
+                      setState(() => _selectedTarget = null);
                     },
                   ),
                 ),
@@ -727,7 +879,7 @@ class _AnnouncementsPageState extends ConsumerState<AnnouncementsPage> {
                           icon: Icon(
                             Icons.alternate_email_rounded,
                             color: _mentionQuery != null ||
-                                    _selectedTargetMember != null
+                                    _selectedTarget != null
                                 ? theme.colorScheme.primary
                                 : theme.colorScheme.outline,
                           ),

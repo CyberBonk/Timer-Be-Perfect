@@ -3,8 +3,10 @@ import 'sound_mode.dart';
 
 class Member {
   final String uid;
+  final String participantName;
   final String sectorName;
   final String normalizedSectorName;
+  final int acknowledgedRevision;
   final int joinedAt;
   final int updatedAt;
   final int lastSeenAt;
@@ -15,8 +17,10 @@ class Member {
 
   const Member({
     required this.uid,
+    this.participantName = '',
     required this.sectorName,
     required this.normalizedSectorName,
+    this.acknowledgedRevision = 1,
     required this.joinedAt,
     required this.updatedAt,
     required this.lastSeenAt,
@@ -37,11 +41,15 @@ class Member {
 
   factory Member.fromJson(Map<String, dynamic> json) {
     final name = json['sectorName'] as String? ?? 'Participant';
+    final pName = json['participantName'] as String? ?? '';
     return Member(
       uid: json['uid'] as String? ?? '',
+      participantName: pName.isNotEmpty ? pName : name,
       sectorName: name,
       normalizedSectorName: json['normalizedSectorName'] as String? ??
           name.toLowerCase().replaceAll(RegExp(r'\s+'), ' '),
+      acknowledgedRevision:
+          (json['acknowledgedRevision'] as num?)?.toInt() ?? 1,
       joinedAt: _parseTimestampMs(json['joinedAt']),
       updatedAt: _parseTimestampMs(json['updatedAt']),
       lastSeenAt: json['lastSeenAt'] == null
@@ -60,8 +68,10 @@ class Member {
 
   Map<String, dynamic> toJson() => {
         'uid': uid,
+        'participantName': participantName,
         'sectorName': sectorName,
         'normalizedSectorName': normalizedSectorName,
+        'acknowledgedRevision': acknowledgedRevision,
         'joinedAt': joinedAt,
         'updatedAt': updatedAt,
         'lastSeenAt': lastSeenAt,

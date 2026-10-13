@@ -49,6 +49,7 @@ void main() {
         roomId: 'room-1',
         ownerUid: 'owner-1',
         state: RoomState.closed,
+        sectors: ['Alpha', 'Beta'],
         sectorCapacity: null,
         activeRunId: null,
         revision: 3,
@@ -62,6 +63,8 @@ void main() {
       expect(restored.roomId, 'room-1');
       expect(restored.ownerUid, 'owner-1');
       expect(restored.state, RoomState.closed);
+      expect(restored.sectors, ['Alpha', 'Beta']);
+      expect(restored.revision, 3);
       expect(restored.sectorCapacity, isNull);
       expect(restored.closedAt, timestamp + 2);
     });
@@ -106,7 +109,9 @@ void main() {
     test('member derives a normalized name and round-trips tokens', () {
       final member = Member.fromJson({
         'uid': 'member-1',
+        'participantName': 'Abanoub',
         'sectorName': '  Alpha  Team ',
+        'acknowledgedRevision': 4,
         'joinedAt': timestamp,
         'updatedAt': timestamp,
         'lastSeenAt': null,
@@ -116,10 +121,14 @@ void main() {
         'fcmTokens': [123, 'token-2'],
       });
 
+      expect(member.participantName, 'Abanoub');
+      expect(member.acknowledgedRevision, 4);
       expect(member.normalizedSectorName, ' alpha team ');
       expect(member.lastSeenAt, 0);
       expect(member.selectedSoundMode, SoundMode.vibrationOnly);
       expect(member.toJson()['fcmTokens'], ['123', 'token-2']);
+      expect(member.toJson()['participantName'], 'Abanoub');
+      expect(member.toJson()['acknowledgedRevision'], 4);
     });
 
     test('feed events distinguish announcements from system events', () {
