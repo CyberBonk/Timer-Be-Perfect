@@ -14,6 +14,7 @@ source commits were not preserved in the original workspace.
 | 2.2.0 | 5 | Shared alarm and locale transition milestone | `pubspec.yaml`, Android metadata, recorded APK rebuild |
 | 2.2.5 | Internal | Polished UI and event presentation | `pubspec.yaml`, UI tests, release APK/AAB checksums, GitHub Release |
 | 2.2.6 | 7 | Bulletproof sound, volume & Huawei EMUI fix | `pubspec.yaml`, unit tests, release APK/AAB checksums, GitHub Release |
+| 3.0.0 | 9 | Multi-participant sectors, 4-state sync, background keepalive | `pubspec.yaml`, 57 tests, clean analyzer, GitHub Release |
 
 ## 2.1.0+4
 
@@ -77,6 +78,17 @@ This release ensures robust audible delivery across all Android OEM devices:
 - Added audible readiness detection and one-tap **Max Volume** controls in the participant UI and settings.
 - Direct Do Not Disturb (DND) Access shortcut in Settings.
 
+## 3.0.0
+
+Major release introducing flexible sector grouping and connection resilience:
+
+- **Multi-Participant Sectors**: Controllers create, rename (with Arabic support), and manage sectors live from a dedicated card. Participants choose from a real-time synchronized dropdown.
+- **Grouped Sector Cards**: Dashboards and participant views group joined members into sector cards with participant counts.
+- **4-State Sync Matrix**: Replaced fragile online/offline labels with revision sync tracking (Green: Synced+Online, Orange: Synced+Offline, Yellow: Out-of-sync+Online, Red: Out-of-sync+Offline).
+- **Background Keepalive & WakeLock**: Android Foreground Service and partial WakeLock keep timer isolates running and network sockets alive during screen-off.
+- **Sector-Targeted @Mentions**: Typing `@SectorName` alerts all members in that sector with priority push notifications; individual `@ParticipantName` is also supported.
+- **Dynamic Settings Limits**: User-configurable max round duration, cooldown duration (up to 15 min), and step intervals.
+
 ## Difference at a glance
 
 ```text
@@ -87,4 +99,7 @@ This release ensures robust audible delivery across all Android OEM devices:
               + compact timer card + refreshed release artifacts
 2.2.6    ->  bulletproof volume enforcement + Huawei EMUI ringer protection
               + v4 notification channels + audible readiness banner
+3.0.0    ->  multi-participant sectors + sector management card
+              + 4-state sync matrix + background keepalive & WakeLock
+              + sector-targeted @mentions + dynamic settings limits
 ```
