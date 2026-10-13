@@ -59,6 +59,17 @@ export async function handleSendAnnouncement(
       timestamp: now,
       targetUid: request.data.targetUid,
       targetSectorName: request.data.targetSectorName,
+      data: {
+        action: 'announcement',
+        type: 'announcement',
+        revision: room.revision.toString(),
+        runId: room.activeRunId || '',
+        title: isOwner ? 'Controller Announcement' : `Message from ${senderName}`,
+        body: trimmedBody,
+        senderUid: uid,
+        ...(request.data.targetUid ? { targetUid: request.data.targetUid } : {}),
+        ...(request.data.targetSectorName ? { targetSectorName: request.data.targetSectorName } : {}),
+      },
     };
 
     tx.set(db.collection(`rooms/${roomId}/feed`).doc(eventId), feedDoc);
@@ -88,6 +99,7 @@ export async function handleSendAnnouncement(
         revision: room.revision,
         title: feedDoc.title,
         body: feedDoc.body,
+        data: feedDoc.data,
         recipientUids,
         createdAt: now,
         processedAt: null,

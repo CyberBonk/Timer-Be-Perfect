@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/routes.dart';
 import 'core/notifications/notification_service.dart';
+import 'core/notifications/fcm_service.dart';
 import 'core/firebase/server_clock.dart';
 import 'core/localization/app_locale.dart';
 import 'core/theme/app_theme.dart';
@@ -52,6 +53,9 @@ void main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       ).timeout(const Duration(seconds: 8));
     }
+
+    // Layer 2: Register top-level FCM background handler and start FcmService
+    unawaited(FcmService().initialize());
 
     if (kUseFirebaseEmulators) {
       final emulatorHost = kIsPhysicalPhoneAdlib

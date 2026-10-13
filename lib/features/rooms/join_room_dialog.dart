@@ -6,6 +6,7 @@ import '../../core/localization/app_locale.dart';
 import '../../core/models/sound_mode.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/notifications/ringer_service.dart';
+import '../../core/notifications/fcm_service.dart';
 import 'qr_scanner_page.dart';
 
 class JoinRoomDialog extends ConsumerStatefulWidget {
@@ -145,6 +146,8 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
       final exactAlarmReadiness =
           await NotificationService().canScheduleExactNotifications();
 
+      final fcmToken = await FcmService().getToken();
+
       final res = await repo.joinRoom(
         code: pin,
         sectorName: sectorName,
@@ -152,6 +155,7 @@ class _JoinRoomDialogState extends ConsumerState<JoinRoomDialog> {
         notificationReadiness: notificationReadiness,
         exactAlarmReadiness: exactAlarmReadiness,
         selectedSoundMode: soundMode,
+        fcmToken: fcmToken,
       );
 
       await ref.read(activeRoomPinProvider.notifier).update(null);

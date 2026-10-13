@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/room_model.dart';
 import '../models/member_model.dart';
 import '../models/run_model.dart';
@@ -33,11 +34,18 @@ class RoomRepository {
 
   /// Ensures installation is authenticated via Anonymous Auth
   Future<User> ensureAuthenticated() async {
+    final User user;
     if (_auth.currentUser != null) {
-      return _auth.currentUser!;
+      user = _auth.currentUser!;
+    } else {
+      final userCredential = await _auth.signInAnonymously();
+      user = userCredential.user!;
     }
-    final userCredential = await _auth.signInAnonymously();
-    return userCredential.user!;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_user_uid', user.uid);
+    } catch (_) {}
+    return user;
   }
 
   /// Generates a secure random 6-digit numeric PIN
@@ -226,6 +234,9 @@ class RoomRepository {
       'exactAlarmReadiness': exactAlarmReadiness,
       'selectedSoundMode': selectedSoundMode.toStorageString(),
       'fcmToken': fcmToken,
+      'fcmTokens': fcmToken != null && fcmToken.isNotEmpty
+          ? FieldValue.arrayUnion([fcmToken])
+          : <String>[],
     }, SetOptions(merge: true));
 
     return {
@@ -770,7 +781,10 @@ class RoomRepository {
     if (selectedSoundMode != null) {
       updates['selectedSoundMode'] = selectedSoundMode.toStorageString();
     }
-    if (fcmToken != null) updates['fcmToken'] = fcmToken;
+    if (fcmToken != null && fcmToken.isNotEmpty) {
+      updates['fcmToken'] = fcmToken;
+      updates['fcmTokens'] = FieldValue.arrayUnion([fcmToken]);
+    }
 
     if (updates.isNotEmpty) {
       await memberRef.set(updates, SetOptions(merge: true));

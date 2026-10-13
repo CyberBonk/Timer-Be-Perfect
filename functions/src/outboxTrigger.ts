@@ -26,14 +26,23 @@ export const handleOutboxCreated = onDocumentCreated(
     }
 
     // Collect all valid FCM tokens for recipient members
+    const seenTokens = new Set<string>();
     const tokensWithUids: { uid: string; token: string }[] = [];
 
     for (const uid of recipientUids) {
       const memberSnap = await db.collection(`rooms/${roomId}/members`).doc(uid).get();
       if (memberSnap.exists) {
-        const tokens: string[] = memberSnap.data()?.fcmTokens || [];
-        for (const token of tokens) {
-          tokensWithUids.push({ uid, token });
+        const memberData = memberSnap.data();
+        let tokens: string[] = memberData?.fcmTokens || [];
+        if (tokens.length === 0 && memberData?.fcmToken) {
+          tokens = [memberData.fcmToken];
+        }
+        for (const rawToken of tokens) {
+          const token = typeof rawToken === 'string' ? rawToken.trim() : '';
+          if (token.length > 0 && !seenTokens.has(token)) {
+            seenTokens.add(token);
+            tokensWithUids.push({ uid, token });
+          }
         }
       }
     }
@@ -43,62 +52,93 @@ export const handleOutboxCreated = onDocumentCreated(
       return;
     }
 
-    const payloadData: Record<string, string> = {
+    const payloadData: Record<string, any> = {
       eventId,
       roomId,
       runId: runId || '',
       revision: revision.toString(),
+      title: title || '',
+      body: body || '',
+      priority: 'high',
       ...(data || {}),
     };
 
-    const tokens = tokensWithUids.map(t => t.token);
-    const response = await messaging.sendEachForMulticast({
-      tokens,
-      notification: {
-        title,
-        body,
-      },
-      data: payloadData,
-      android: {
-        priority: 'high',
-        notification: {
-          sound: 'default',
-          channelId: 'be_perfect_announcements_v1',
-        },
-      },
-    });
-
-    // Clean up invalid or unregistered tokens
-    const invalidTokensByUid = new Map<string, string[]>();
-    response.responses.forEach((resp, idx) => {
-      if (!resp.success && resp.error) {
-        const code = resp.error.code;
-        if (
-          code === 'messaging/invalid-registration-token' ||
-          code === 'messaging/registration-token-not-registered'
-        ) {
-          const item = tokensWithUids[idx];
-          const list = invalidTokensByUid.get(item.uid) || [];
-          list.push(item.token);
-          invalidTokensByUid.set(item.uid, list);
-        }
+    // Ensure all values in the data dictionary are strings
+    const safeData: Record<string, string> = {};
+    for (const [k, v] of Object.entries(payloadData)) {
+      if (v !== undefined && v !== null) {
+        safeData[k] = typeof v === 'string' ? v : String(v);
       }
-    });
+    }
+
+    let totalSuccess = 0;
+    let totalFailure = 0;
+    const invalidTokensByUid = new Map<string, string[]>();
+    const batchSize = 500;
+
+    for (let i = 0; i < tokensWithUids.length; i += batchSize) {
+      const chunk = tokensWithUids.slice(i, i + batchSize);
+      const tokens = chunk.map(t => t.token);
+
+      // Data-only payload with high priority ensures onBackgroundMessage runs immediately
+      // even when participant devices are in Android Doze mode or deep sleep.
+      const response = await messaging.sendEachForMulticast({
+        tokens,
+        data: safeData,
+        android: {
+          priority: 'high',
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'background',
+          },
+          payload: {
+            aps: {
+              'content-available': 1,
+            },
+          },
+        },
+      });
+
+      totalSuccess += response.successCount;
+      totalFailure += response.failureCount;
+
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success && resp.error) {
+          const code = resp.error.code;
+          if (
+            code === 'messaging/invalid-registration-token' ||
+            code === 'messaging/registration-token-not-registered'
+          ) {
+            const item = chunk[idx];
+            const list = invalidTokensByUid.get(item.uid) || [];
+            list.push(item.token);
+            invalidTokensByUid.set(item.uid, list);
+          }
+        }
+      });
+    }
 
     for (const [uid, badTokens] of invalidTokensByUid.entries()) {
       const memberRef = db.collection(`rooms/${roomId}/members`).doc(uid);
       const mSnap = await memberRef.get();
       if (mSnap.exists) {
-        const currentTokens: string[] = mSnap.data()?.fcmTokens || [];
+        const memberData = mSnap.data();
+        const currentTokens: string[] = memberData?.fcmTokens || [];
         const filtered = currentTokens.filter(t => !badTokens.includes(t));
-        await memberRef.update({ fcmTokens: filtered });
+        const updates: Record<string, any> = { fcmTokens: filtered };
+        if (badTokens.includes(memberData?.fcmToken)) {
+          updates.fcmToken = admin.firestore.FieldValue.delete();
+        }
+        await memberRef.update(updates);
       }
     }
 
     await snap.ref.update({
       processedAt: Date.now(),
-      successCount: response.successCount,
-      failureCount: response.failureCount,
+      successCount: totalSuccess,
+      failureCount: totalFailure,
     });
   }
 );

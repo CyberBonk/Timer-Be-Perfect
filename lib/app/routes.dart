@@ -6,6 +6,7 @@ import '../core/firebase/server_clock.dart';
 import '../core/firebase/room_authorization.dart';
 import '../core/localization/app_locale.dart';
 import '../core/notifications/notification_service.dart';
+import '../core/notifications/fcm_service.dart';
 import '../core/notifications/ringer_service.dart';
 import '../core/notifications/wakelock_service.dart';
 import '../core/timer/schedule_engine.dart';
@@ -504,10 +505,12 @@ class _NavigationHostPageState extends ConsumerState<NavigationHostPage> {
     final notifications = await NotificationService().areNotificationsEnabled();
     final exactAlarm =
         await NotificationService().canScheduleExactNotifications();
+    final fcmToken = await FcmService().getToken();
     await ref.read(roomRepositoryProvider).updateMemberReadiness(
           roomId: roomId,
           notificationReadiness: notifications,
           exactAlarmReadiness: exactAlarm,
+          fcmToken: fcmToken,
         );
   }
 

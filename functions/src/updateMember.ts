@@ -40,6 +40,7 @@ export async function handleUpdateMember(
   if (selectedSoundMode !== undefined) updates.selectedSoundMode = selectedSoundMode;
 
   if (fcmToken) {
+    updates.fcmToken = fcmToken;
     const existingTokens: string[] = snap.data()?.fcmTokens || [];
     if (!existingTokens.includes(fcmToken)) {
       updates.fcmTokens = [...existingTokens, fcmToken];

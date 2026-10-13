@@ -139,6 +139,10 @@ export async function handleStartRun(
         action: 'start_run',
         runId,
         revision: newRevision.toString(),
+        runStatus: 'starting',
+        roundCount: roundCount.toString(),
+        schedule: JSON.stringify(schedule),
+        startsAt: startsAt.toString(),
       },
     };
 

@@ -234,10 +234,31 @@ final userSectorNameProvider =
     NotifierProvider<UserSectorNameNotifier, String?>(
         UserSectorNameNotifier.new);
 
+const _selectedSoundModeKey = 'selected_sound_mode';
+
 class SoundModeNotifier extends Notifier<SoundMode> {
+  var _hasLocalUpdate = false;
+
   @override
-  SoundMode build() => SoundMode.bePerfectSound;
-  void update(SoundMode val) => state = val;
+  SoundMode build() {
+    unawaited(_restore());
+    return SoundMode.bePerfectSound;
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!_hasLocalUpdate) {
+      final val = prefs.getString(_selectedSoundModeKey);
+      if (val != null) state = SoundMode.fromString(val);
+    }
+  }
+
+  Future<void> update(SoundMode val) async {
+    _hasLocalUpdate = true;
+    state = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_selectedSoundModeKey, val.toStorageString());
+  }
 }
 
 final soundModeProvider =

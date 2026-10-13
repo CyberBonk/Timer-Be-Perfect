@@ -62,7 +62,9 @@ class Member {
       fcmTokens: (json['fcmTokens'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
-          [],
+          (json['fcmToken'] != null && json['fcmToken'].toString().isNotEmpty
+              ? [json['fcmToken'].toString()]
+              : []),
     );
   }
 

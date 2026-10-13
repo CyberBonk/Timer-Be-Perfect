@@ -219,7 +219,19 @@ export async function handleApplyRoomCommand(
       timestamp: now,
       data: {
         action,
+        runId: room.activeRunId!,
         revision: newRevision.toString(),
+        runStatus: newStatus,
+        roundCount: run.roundCount.toString(),
+        schedule: JSON.stringify(updatedSchedule),
+        startsAt: run.startsAt.toString(),
+        ...(newPausedState
+          ? {
+              pausedPhaseId: newPausedState.pausedPhaseId,
+              pausedRemainingMs: newPausedState.remainingMs.toString(),
+              pausedAt: newPausedState.pausedAt.toString(),
+            }
+          : {}),
       },
     };
 
